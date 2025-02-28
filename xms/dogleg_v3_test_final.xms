@@ -1,0 +1,251 @@
+// set flags and parameters
+// V0 -- commandByte
+//    -- V0 = 0 is IDLE
+//    -- V0 = 5 is dogleg homing procedure
+//    -- V0 = 6 is dogleg goto procedure
+//    -- V0 = -1 is set FPOS to value
+// V1 -- motorID
+//    -- (see variableDictionaryXCD2.py for full list of motorIDs)
+// V9 -- dogleg offset
+// V10 - valueByte, used to encode goto values
+// V11 - numRevs, used to keep dogleg within +/-3 rots
+// V16 - dirMove, used to determine CCW or CW rotation
+// V17 - numSteps = abs(4*relPos) numver of quarter-turn steps
+// V18 - relPos, calculated distance to desired position
+// V19 - statusByte
+//     - V19 = 0 SUCCESS/IDLE
+//     - V19 = 1 FAIL by out of bounds
+//     - V19 = 8 WAITING - command issued by RPi but waiting for xms
+//     - V19 = 9 BUSY
+XAXIS = 1
+ENR = 6.103515625e-5
+MTL = 4000000
+DZMIN = ENR
+DZMAX = 4*ENR
+KP = 10
+VEL = 100
+
+// invert dogleg encoder feedback (bit 18)
+config 900, 0x00051001
+delay 1000
+
+XAXIS = 0
+ENR = 6.103515625e-5
+MTL = 4000000
+DZMIN = ENR
+DZMAX = 4*ENR
+KP = 10
+VEL = 100
+
+// invert dogleg encoder feedback (bit 18)
+config 900, 0x00051001
+
+// initialize commandBYTE, motorID, and statusBYTE to IDLE
+V0 = 0
+V1 = 0
+V6 = -1
+V8 = -1000
+V19 = 98
+
+// set encoder latch POS flag to 0
+set S_IND = 0
+
+
+
+// Start infinite loop
+while 1  
+
+   // dogleg homing procedure - find home tick, record dist
+   // relative to starting position
+   if V0 = 5
+   
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // store current position
+      V18 = FPOS
+
+      // check if out of bounds
+      if abs(V11) > 4
+         V19 = 1 //errorcode FAIL_OUT_OF_BOUNDS
+         V0 = 0
+      else
+
+         // calculate direction
+         V16 = 1
+         if V11 > 0
+            V16 = -1
+         end
+
+         // moves in quarter turn steps in dir'n with greater range (more turns)
+         // gets pretty close (within quarter turn)
+         set S_IND = 0
+         enable
+         while S_IND = 0 & abs(V11) < 3
+            V12 = FPOS + V16*0.25
+            set TIME = 0
+            move V12
+            while V16*(V12-FPOS) > 10*ENR & TIME < 7000
+            end
+            move FPOS - V16*0.01
+            delay 100
+         end
+         disable
+
+         // flag will have flipped so reset, update V11
+         set S_IND = 0
+         V11 = V11 + V16
+         
+         //turn in other direction until flag flips again
+         enable
+         velocityloop -V16*1.5
+         while S_IND = 0
+         end
+         velocityloop 0.0
+         disable
+
+         // again reset flag, update V11
+         set S_IND = 0
+         V11 = V11 - V16
+
+         // calculate distance between start and home
+         V9 = V18 - FPOS
+
+         // set statusBYTE SUCCESS
+         V19 = 0
+
+      end
+
+      // reset to IDLE state
+      V0 = 0
+
+   // end dogleg homing procedure
+   end
+
+
+
+   // dogleg goto procedure
+   if V0 = 6
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // calculate signed relative distance to destination
+      V18 = V10 - FPOS
+
+      // if destination is out of bounds (based on number of turns)
+      // then throw errorcode and reset
+      if abs(V18 + V11) > 4
+         V19 = 1 //errorcode FAIL_OUT_OF_BOUNDS
+         V0 = 0  //reset commandBYTE
+
+      else
+         // calculate number of steps to take V17
+         V17 = abs(4*V18)
+
+         // calculate dir'n to turn based on signed relative dist
+         V16 = 1 //V16=dirMove (+1 for pos rotation, -1 for neg)
+         if V18 < 0
+            V16 = -1
+         end
+
+         // begin moves - happens in quarter turn steps
+         set S_IND = 0
+         enable
+         while V17 > 1 & V11*V16 <= 3 & V19 = 9
+            V12 = FPOS + V16*0.25
+            set TIME = 0
+            move V12
+            while V16*(V12-FPOS) > 10*ENR & TIME < 7000
+            end
+            move FPOS - V16*0.01
+            delay 100
+  
+            // every time home flag fires, update nTurns (V11)
+            if S_IND <> 0
+               V11 = V11 + V16
+               set S_IND = 0
+            end
+
+            if V16*(V10 - FPOS) > V16*V18
+               V19 = 6 //errorcode FAIL_ENC_ERROR
+            end
+
+            // after every quarter turn, decrement numSteps (V17)
+            V17 = V17 - 1
+         end
+
+         // perform final move if still in bounds (7 secs to complete)
+         if V11*V16 <= 3 & V16*(V10 - FPOS) < 0.3 & V19 = 9
+            set TIME = 0
+            move V10
+            while V16*(V10-FPOS) > 10*ENR & TIME < 7000
+            end
+      
+            if S_IND <> 0
+               V11 = V11 + V16
+               set S_IND = 0
+            end
+
+            if V16*(V10-FPOS) > 10*ENR 
+               V19 = 4 //errorcode FAIL_DID_NOT_ARRIVE
+            else
+               V19 = 0 //errorcode SUCCESS
+            end
+
+         else
+            if V19 <> 6
+               // set statusBYTE FAIL_DL_LAST_MOVE
+               V19 = 5
+            end
+         end
+         disable
+
+      end
+
+      // reset to IDLE state
+      V0 = 0
+
+   // end dogleg goto procedure
+   end
+
+
+   // openloop control routine (in case doglegs shit themselves)
+   if V0 = 60
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // check time parameter if not set
+      if V6 < 0 | V6 > 1000
+         V19 = 7 //errorcode NEED_ASSIGN_OL_PARAMS
+      end
+
+      // check openloop PWM supply percentage
+      if V10 < -100 | V10 > 100
+         V19 = 7 //errorcode NEED_ASSIGN_OL_PARAMS
+      end
+
+      // if time and openloop parameters are valid (status has not changed)
+      // then execute openloop move for given time
+      if V19 = 9
+         enable
+         set TIME = 0
+         openloop V10
+         while TIME < V6
+         end
+         openloop 0
+         disable
+
+         V19 = 0 //errorcode SUCCESS
+      end
+
+      // reset to IDLE state
+      V0 = 0
+
+   // end openloop control routine
+   end
+
+
+
+end

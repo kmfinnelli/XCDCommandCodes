@@ -2,6 +2,176 @@
 
 import sys
 
+varTuning = {
+#min_distance (minimum amount we can move without doing a backoff-and-recover),
+#move_tolerance (how far from destination we are allowed to be without marking it FAIL)
+'Phi':[0.1,0.001],
+'ThetaS':[0.01,0.001],
+'ThetaL':[0.02,0.001],
+'Attenuator':[0.02,0.005],
+'Dogleg':[0.01,0.001]
+}
+
+varPhiCommands = {
+# Variables listed below are definitions in phi_test_final.xms
+'GOTO': 2,
+'HOME': 1,
+'OPENLOOP': 100
+}
+
+varThetaLCommands = {
+# Variables listed below are definitions in thetaL_test_final.xms
+'GOTO': 4,
+'HOME': 3,
+'OPENLOOP': 101
+}
+
+varThetaSCommands = {
+# Variables listed below are definitions in thetaS_test_final.xms
+'GOTO': 8,
+'HOME': 7,
+'OPENLOOP': 101
+}
+
+varDoglegCommands = {
+# Variables listed below are definitions in dogleg_v3_test_final.xms
+'GOTO': 6,
+'HOME': 5,
+'OPENLOOP': 60
+}
+
+varAttenuatorCommands = {
+# Variables listed below are definitions in dogleg_v3_test_final.xms
+'GOTO': 10,
+'HOME': 9,
+'OPENLOOP': 100
+}
+
+varAllCommands = {
+'Phi':varPhiCommands,
+'ThetaL':varThetaLCommands,
+'ThetaS':varThetaSCommands,
+'Dogleg':varDoglegCommands,
+'Attenuator':varAttenuatorCommands
+}
+
+varInterfaceAddresses= {
+'XAXIS':'XAXIS',
+'COMMAND':'V0',
+'ID':'V1',
+'HARD_STOP1':'V2',
+'HARD_STOP2':'V3',
+'TH_L_GAIN':'V7',
+'HOME':'POSI',
+'ARG':'V10',
+'TURNS':'V11',
+'STATUS':'V19',
+'FPOS':'FPOS',
+'ENR':'ENR'
+}
+
+
+varStatusValues={
+'READY':0,
+'FAIL_OUT_OF_BOUNDS':1,
+'FAIL_DIDNT_GET_HOME':2,
+'FAIL_THL_HOME':3,
+'FAIL_DID_NOT_ARRIVE':4,
+'FAIL_DL_LAST_MOVE':5,
+'FAIL_ENC_ERROR':6,
+'NEED_ASSIGN_OL_PARAMS':7,
+'NEWCOMMAND':8,
+'BUSY':9,
+'TIMEOUT':80,
+'FAIL_DID_NOT_RESPOND':97,
+'BOOT':98
+}
+
+varUniqueID={
+'DEBUG_DL0_A0': 101, 
+'DEBUG_DL0_A1': 102,
+'DEBUG_DL1_A0': 103, 
+'DEBUG_DL1_A1': 104,
+'DEBUG_TH_S': 105,
+'DEBUG_TH_L': 106,
+'DEBUG_PH': 107,
+'DEBUG_AT': 108,
+
+'DEBUG_NONAME':0,
+
+'3S_DL0_A0': 1,
+'3S_DL0_A1': 2,
+'3S_DL1_A0': 3,
+'3S_DL1_A1': 4,
+'3S_TH_S': 5,
+'3S_TH_L': 6,
+'3S_PH': 7,
+'3S_AT': 8,
+
+'6S_DL0_A0': 11,
+'6S_DL0_A1': 12,
+'6S_DL1_A0': 13,
+'6S_DL1_A1': 14,
+'6S_TH_S': 15,
+'6S_TH_L': 16,
+'6S_PH': 17,
+'6S_AT': 18,
+
+'9S_DL0_A0': 21,
+'9S_DL0_A1': 22,
+'9S_DL1_A0': 23,
+'9S_DL1_A1': 24,
+'9S_TH_S': 25,
+'9S_TH_L': 26,
+'9S_PH': 27,
+'9S_AT': 28,
+
+'12S_DL0_A0': 31,
+'12S_DL0_A1': 32,
+'12S_DL1_A0': 33,
+'12S_DL1_A1': 34,
+'12S_TH_S': 35,
+'12S_TH_L': 36,
+'12S_PH': 37,
+'12S_AT': 38,
+
+'3N_DL0_A0': 41,
+'3N_DL0_A1': 42,
+'3N_DL1_A0': 43,
+'3N_DL1_A1': 44,
+'3N_TH_S': 45,
+'3N_TH_L': 46,
+'3N_PH': 47,
+'3N_AT': 48,
+
+'6N_DL0_A0': 51,
+'6N_DL0_A1': 52,
+'6N_DL1_A0': 53,
+'6N_DL1_A1': 54,
+'6N_TH_S': 55,
+'6N_TH_L': 56,
+'6N_PH': 57,
+'6N_AT': 58,
+
+'9N_DL0_A0': 61,
+'9N_DL0_A1': 62,
+'9N_DL1_A0': 63,
+'9N_DL1_A1': 64,
+'9N_TH_S': 65,
+'9N_TH_L': 66,
+'9N_PH': 67,
+'9N_AT': 68,
+
+'12N_DL0_A0': 71,
+'12N_DL0_A1': 72,
+'12N_DL1_A0': 73,
+'12N_DL1_A1': 74,
+'12N_TH_S': 75,
+'12N_TH_L': 76,
+'12N_PH': 77,
+'12N_AT': 78
+}
+
 varDict = {
 # Variables listed below are taken from the XCD2 software manual. For more information, see https://www.nanomotion.com/wp-content/uploads/2018/05/xcd2458000-00_rev-b-fw-manual.pdf
 
@@ -151,8 +321,8 @@ varDict = {
 'XMS_LENGTH' : 951, # Length of XMS program in Controller memory - Tags: RO
 'LAST_ERROR' : 960, # Returns real value of last error in the controller - Tags: AX
 'AXES_NUMBER' : 981, # Number of supported axes in the system - Tags: RO
-'UART0_ADDRESS' : 990, # Acces to Communication channel address - Tags: FL
-'UART1_ADDRESS' : 991, # Acces to Communication channel address - Tags: FL
+'UART0_ADDRESS' : 990, # Access to Communication channel address - Tags: FL
+'UART1_ADDRESS' : 991, # Access to Communication channel address - Tags: FL
 'IIC_ADDRESS' : 992, # Acces to Communication channel address - Tags: FL
 'SPI_ADDRESS' : 993, # Acces to Communication channel address - Tags: FL
 'POWERSAVE_ENABLE' : 994, # Power Save Enable; 1= enable, 0=disable - Tags: FL

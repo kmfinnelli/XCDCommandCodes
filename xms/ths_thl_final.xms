@@ -1,0 +1,316 @@
+// set flags and parameters
+// V0 -- commandByte (see variableDictionaryXCD2.py for full list)
+//    -- V0 = 0 is IDLE
+//    -- V0 = 3 is theta long homing procedure
+//    -- V0 = 4 is theta long goto procedure
+// V1 -- motorID
+//    -- (see variableDictionaryXCD2.py for full list of motorIDs)
+// V2 -- negative hard stop
+// V3 -- positive hard stop
+// V4 -- encoder latch pos (if visible)
+// V10 - valueByte, used to encode goto values
+// V18 - encoder iterator variable
+// V19 - statusByte
+//     - V19 = 0 SUCCESS/IDLE
+//     - V19 = 1 FAILURE
+//     - V19 = 9 BUSY
+XAXIS = 1
+ENR = 6.103515625e-5
+MTL = 4000000
+DZMIN = ENR
+DZMAX = 4*ENR
+KP = 10
+VEL = 2
+
+// configure theta motor settings (non-inverted drive and feedback)
+config 900, 0x00051001
+delay 500
+
+XAXIS = 0
+ENR = 6.103515625e-5
+MTL = 4000000
+DZMIN = ENR
+DZMAX = 4*ENR
+KP = 10
+VEL = 2
+
+// configure theta motor settings (non-inverted drive and feedback)
+config 900, 0x00051001
+
+// initialize commandBYTE, statusBYTE to IDLE
+V0 = 0
+V18 = 0
+V19 = 98
+
+// set encoder latch POS flag to 0
+set S_IND = 0
+
+
+
+// Start infinite loop
+while 1  
+
+
+   // theta long mirror homing procedure
+   if V0 = 3
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // check gain param, if not valid, set to 1
+      if V7 >= 5 | V7 <= 0
+         V7 = 1
+      end
+
+      // first move back and forth
+      enable
+      velocityloop -1.5*V7
+      delay 500
+
+      V18 = FPOS //lower position we were able to find
+
+      velocityloop 1.5*V7
+      delay 500
+      disable
+
+      V17 = FPOS //higher position we found
+
+      // drive in negative dir'n to lowbound until stop
+      set S_IND = 0
+      set TIME = 0
+      enable
+      velocityloop -1.5*V7
+      delay 100
+      while abs(V18 - FPOS) > ENR & abs(V17 - FPOS) < 0.8 & TIME < 7000
+         V18 = FPOS
+         delay 100
+      end
+      velocityloop 0.0
+      disable
+
+      // record negative hard stop
+      V2 = FPOS
+
+      // set a conservative positive hard stop
+      V3 = FPOS + 0.65
+
+      // then turn in positive dir'n to find home
+      set S_IND = 0
+      set TIME = 0
+      enable
+      velocityloop 1.5*V7
+      while S_IND = 0 & FPOS < V3 & TIME < 4000
+      end
+      velocityloop 0.0
+      disable
+
+      // if encoder latch pos not found, set errorcode
+      // otherwise set latch pos, reset encoder latch flag, and set status
+      if S_IND = 0
+         V19 = 3 //errorcode FAIL_THL_HOME
+      else
+         V4 = FPOS
+         set S_IND = 0
+         V19 = 0 //errorcode SUCCESS
+      end
+         
+      // then reset to IDLE
+      V0 = 0
+
+   // end theta long mirror home procedure
+   end
+
+
+
+   // theta long mirror goto procedure
+   if V0 = 4
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // check if V10 a valid input and if so move (2.5secs to complete)
+      // if not, throw error code V19 = 4
+      if V10 >= V2 & V10 <= V3
+         set TIME = 0
+         enable
+         move V10
+         while abs(V10 - FPOS) > 10*ENR & TIME < 2500
+         end
+         disable
+
+         if abs(V10 - FPOS) > 10*ENR
+            V19 = 4 //errorcode FAIL_DID_NOT_ARRIVE
+         else
+            V19 = 0 //errorcode SUCCESS
+         end
+
+      else
+         V19 = 1 //errorcode FAIL_OUT_OF_BOUNDS
+      end
+
+      // reset to IDLE state
+      V0 = 0
+
+   // end theta long mirror goto procedure
+   end
+
+
+
+   // theta short home procedure
+   if V0 = 7
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // rotate in positive dir'n to find encoder home
+      set S_IND = 0
+      set TIME = 0
+      enable
+      velocityloop 5.0
+      while S_IND = 0 & TIME < 7000
+      end
+      velocityloop 0.0
+      disable
+
+      // set status SUCCESS
+      V19 = 0
+
+      // then reset to IDLE
+      V0 = 0      
+
+   // end theta short home procedure
+   end
+
+
+
+   // theta short goto procedure
+   if V0 = 8
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // move to argVAL (2secs to complete)
+      set TIME = 0
+      move V10
+      while abs(V10 - FPOS) > 10*ENR & TIME < 2000
+      end
+
+      // if not there, throw error code
+      if abs(V10 - FPOS) > 10*ENR
+         V19 = 4 //errorcode FAIL_DID_NOT_ARRIVE
+      else
+         V19 = 0 //errorcode SUCCESS
+      end
+
+      // then reset to IDLE
+      V0 = 0
+
+   // end theta short goto procedure
+   end
+
+
+
+   // find minimum velocity routine
+   if V0 = 99
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // set initial velocity
+      V13 = 0.0
+      V14 = 0.0
+
+      // set initial encoder iterator
+      V18 = FPOS
+
+      // start at velocity 0 and iterate from there
+      enable
+      velocityloop V13
+      delay 100
+      while V18 = FPOS
+         V13 = V13 - 0.1
+         velocityloop V13
+         delay 100
+      end
+      velocityloop 0.0
+      disable
+
+      // start at velocity 0 again and iterate from there
+      enable
+      velocityloop V14
+      delay 100
+      while V18 = FPOS
+         V14 = V14 + 0.1
+         velocityloop V14
+         delay 100
+      end
+      velocityloop 0.0
+      disable
+
+      // set status as done once found
+      V19 = 0
+
+      // then reset to IDLE
+      V0 = 0
+
+   // end find minimum velocity routine
+   end
+
+
+
+   // open loop goto procedure
+   if V0 = 101
+
+      // set statusBYTE BUSY
+      V19 = 9
+
+      // check if V10 a valid input and if so move (2.5secs to complete)
+      // if not, throw error code V19 = 4
+      if V10 >= V2 & V10 <= V3
+
+         // calculate relative move distance
+         V18 = V10 - FPOS
+
+         // calculate dir'n to turn based on signed relative dist
+         V16 = 1 //V16=dirMove (+1 for pos rotation, -1 for neg)
+         if V18 < 0
+            V16 = -1
+         end
+
+         set TIME = 0
+         enable
+         openloop V16*100
+         while V16*(V10 - FPOS) > 0 & TIME < 2500
+         end
+         openloop 0.0
+         disable
+         
+         if abs(V10 - FPOS) > 10*ENR
+            V19 = 4 //errorcode DID_NOT_ARRIVE
+         else
+            V19 = 0 //errorcode SUCCESS
+         end
+
+      else
+         V19 = 1 //errorcode FAIL_OUT_OF_BOUNDS
+      end
+
+      // reset to IDLE state
+      V0 = 0
+
+   // end phi goto procedure
+   end
+
+
+   // ping procedure
+   if V0 = -1
+      
+      // reset to IDLE state
+      V0 = 0
+
+   // end ping procedure
+   end
+
+
+
+end
